@@ -55,30 +55,39 @@ blueprint:
   source_url: https://community.home-assistant.io/t/turn-a-fan-on-and-off-based-on-the-difference-between-a-humidity-sensor-and-a-baseline/255999/41
 # --- How this automation works ---
 #
-# Variables:
-#   difference = humidity_sensor - reference_humidity_sensor (in g/m³)
-#   mode = "on" if difference exceeds rising_threshold (fan off) or falling_threshold (fan on),
-#          "off" otherwise. The two thresholds create hysteresis to prevent rapid toggling.
+# Internal variables (computed automatically, not user-configurable):
+#   switch_state = current state of the fan switch ("on" or "off")
+#   difference   = humidity_sensor - reference_humidity_sensor (in g/m³)
+#   mode         = the DESIRED fan state, based on the humidity difference:
+#                  - fan is off and difference > rising_threshold  → mode = "on"  (turn fan on)
+#                  - fan is on  and difference > falling_threshold → mode = "on"  (keep fan on)
+#                  - otherwise                                     → mode = "off" (turn fan off)
+#                  The two separate thresholds create hysteresis to prevent rapid toggling.
 #
 # Trigger:
 #   Fires whenever either humidity sensor reports a new value.
 #
 # Conditions (both must be true for the action to run):
-#   1. mode != switch_state  — only act if the desired state differs from current state
+#   1. mode != switch_state  — only act if the desired state differs from the current state
 #   2. OR:
 #      a. mode == "on"       — always allowed to turn the fan ON
 #      b. boolean is "on"    — only allowed to turn the fan OFF if the automation was
-#                               the one that turned it on (boolean tracks this)
+#                               the one that turned it on (the boolean tracks this)
 #
 # Action:
-#   Turns the fan and the boolean to the same state (on or off).
+#   Sets the fan switch and the boolean to the same state (on or off).
+#
+# The input_boolean (humidity_automation_boolean):
+#   This is an internal helper — leave it OFF initially and never toggle it manually.
+#   The automation manages it automatically to track whether it was responsible for
+#   turning on the fan. This enables the manual override behavior described below.
 #
 # Manual override scenario:
 #   - Automation turns fan ON  → boolean = on (marks "automation did this")
-#   - Automation turns fan OFF → checks boolean is on first, then sets both off
+#   - Automation turns fan OFF → checks boolean is on first, then sets both to off
 #   - User manually turns fan ON → boolean stays off (automation didn't set it)
-#     → when humidity drops, automation wants mode=off, but boolean is off
-#     → condition 2 fails → action is blocked → fan stays on
+#     → when humidity drops, automation wants mode = "off", but boolean is off
+#     → condition 2 fails → action is blocked → fan stays on until user turns it off
 #
 trigger:
   - entity_id: !input humidity_sensor
