@@ -1,21 +1,21 @@
 blueprint:
-  name: Humidity Management Modified
-  description: Turn a fan on and off based on the difference between a humidity sensor and a baseline, toggle an input_boolean
+  name: Absolute Humidity Management
+  description: Turn a fan on and off based on the difference between an absolute humidity sensor and a reference sensor (in g/m³), toggle an input_boolean
   domain: automation
   input:
     humidity_sensor:
         name: Humidity Sensor
-        description: A sensor that measures the humidity of the area
+        description: A sensor that measures the absolute humidity of the area (in g/m³)
         selector:
           entity:
             domain: sensor
     reference_humidity:
         name: Reference Humidity
-        description: A percentage point value that indicates the baseline humidity if there is no reference sensor available
-        default: 60
+        description: A value in g/m³ that indicates the baseline absolute humidity if there is no reference sensor available
+        default: 8.0
     reference_humidity_sensor:
         name: Reference Humidity Sensor
-        description: A sensor that indicates the baseline humidity of the location
+        description: A sensor that indicates the baseline absolute humidity of the location (in g/m³)
         selector:
           entity:
             domain: sensor
@@ -28,31 +28,58 @@ blueprint:
             domain: switch
     rising_threshold:
         name: Rising Threshold
-        description: How many percentage points above the reference humidity the sensor can rise before the fan is turned on
+        description: How many g/m³ above the reference absolute humidity the sensor can rise before the fan is turned on
         selector:
           number:
             min: 0.0
-            max: 100.0
-            step: 1.0
+            max: 20.0
+            step: 0.5
             mode: slider
-        default: 8.0
+        default: 2.0
     falling_threshold:
         name: Falling Threshold
-        description: How many percentage points above the reference humidity the sensor must fall to before the fan is turned off
+        description: How many g/m³ above the reference absolute humidity the sensor must fall to before the fan is turned off
         selector:
           number:
             min: 0.0
-            max: 100.0
-            step: 1.0
+            max: 20.0
+            step: 0.5
             mode: slider
-        default: 5.0
+        default: 1.0
     humidity_automation_boolean:
         name: Input Boolean Toggle
-        description: Input Boolean to signify the state of the automation.
+        description: Input Boolean that tracks whether the fan was turned on by this automation. Prevents the automation from turning off a fan that was manually turned on.
         selector:
           entity:
             domain: input_boolean
   source_url: https://community.home-assistant.io/t/turn-a-fan-on-and-off-based-on-the-difference-between-a-humidity-sensor-and-a-baseline/255999/41
+# --- How this automation works ---
+#
+# Variables:
+#   difference = humidity_sensor - reference_humidity_sensor (in g/m³)
+#   mode = "on" if difference exceeds rising_threshold (fan off) or falling_threshold (fan on),
+#          "off" otherwise. The two thresholds create hysteresis to prevent rapid toggling.
+#
+# Trigger:
+#   Fires whenever either humidity sensor reports a new value.
+#
+# Conditions (both must be true for the action to run):
+#   1. mode != switch_state  — only act if the desired state differs from current state
+#   2. OR:
+#      a. mode == "on"       — always allowed to turn the fan ON
+#      b. boolean is "on"    — only allowed to turn the fan OFF if the automation was
+#                               the one that turned it on (boolean tracks this)
+#
+# Action:
+#   Turns the fan and the boolean to the same state (on or off).
+#
+# Manual override scenario:
+#   - Automation turns fan ON  → boolean = on (marks "automation did this")
+#   - Automation turns fan OFF → checks boolean is on first, then sets both off
+#   - User manually turns fan ON → boolean stays off (automation didn't set it)
+#     → when humidity drops, automation wants mode=off, but boolean is off
+#     → condition 2 fails → action is blocked → fan stays on
+#
 trigger:
   - entity_id: !input humidity_sensor
     platform: state
